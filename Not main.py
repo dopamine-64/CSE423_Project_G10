@@ -4,36 +4,40 @@ from OpenGL.GLU import *
 import math
 import random
 
-# ------------------ Camera / Grid ------------------
 camera_pos = (0, 500, 500)
 fovY = 120
 tile_size = 100
-offset = (11.7 * tile_size)  # half span used by your grid
+offset = (11.7 * tile_size)
 
-GRID_LENGTH = 600  # Length of grid lines
+GRID_LENGTH = 600 
 
-# ------------------ Player / Arrows ------------------
-player_angle = 0    # yaw around Z (A/D rotate this)
-arrows = []         # (x, y, z, angle_deg, vz)
+player_angle = 0
+arrows = []
 
-# Player base transform (where the keep-top player is placed)
 player_base = (-55.0, -650.0, 350.0)
-player_tilt = -28.0       # forward tilt (around +X)
+player_tilt = -28.0 
 player_scale = 1.2
-player_angle = 0     # yaw around Z
-player_pitch = 0     # new: up/down tilt
-# Bow/hands local spot in the player model (between the two arms)
-# Arms are around (±20, 15, 100); this is the center between them, a tad forward.
-bow = (0.0, 22.0, 105.0)  # (x, y, z) in player's local space before tilt/rotation
+player_angle = 0
+player_pitch = 0
+
+bow = (0.0, 22.0, 105.0)
 kill_count = 0
 
 god_mode = False
-god_players = []   # list of {"x","y","z","angle","sweep_dir","ready"}
+god_players = []
 
 god_mode_cooldown = 0
-god_shooter_index = 0   # 0 or 1 → which god archer shoots next
+god_shooter_index = 0
 
-# ------------------ UI ------------------
+missed_arrows = 0
+castle_health = 10
+game_over = False
+
+sky_time = 0.0
+sky_speed = 0.002
+
+first_person = False
+
 def draw_text(x, y, text, font=GLUT_BITMAP_HELVETICA_18):
     glColor3f(0, 0, 0)
     glMatrixMode(GL_PROJECTION)
@@ -51,7 +55,6 @@ def draw_text(x, y, text, font=GLUT_BITMAP_HELVETICA_18):
     glPopMatrix()
     glMatrixMode(GL_MODELVIEW)
 
-# ------------------------ CASTLE HELPERS ------------------------
 def draw_gatehouse(center_x=0, front_y=250, wall_thickness=30, height=140):
     glPushMatrix()
     glTranslatef(center_x, front_y - wall_thickness / 2 - 1, 120)
@@ -205,7 +208,6 @@ def draw_castle():
     draw_tower(-half, half+15, base_r=45, height=190)
     draw_tower(half, half+15, base_r=45, height=190)
 
-# ------------------ Clouds ------------------
 cloud_positions = []
 
 def init_clouds(num_clouds):
@@ -230,7 +232,6 @@ def draw_clouds():
     for (x, y, z) in cloud_positions:
         draw_cloud(x, y, z)
 
-# ------------------ Grid ------------------
 def draw_grid_and_walls():
     for i in range(23):
         for j in range(23):
@@ -253,18 +254,15 @@ def draw_grid_and_walls():
     draw_castle()
     glPopMatrix()
 
-# ------------------ Player ------------------
 def draw_player_on_keep():
     glPushMatrix()
 
-    # Base placement
     glTranslatef(*player_base)
-    glRotatef(player_tilt, 1, 0, 0)   # tilt forward (look at ground)
-    glRotatef(player_angle, 0, 0, 1)      # yaw
-    glRotatef(player_pitch, 1, 0, 0)  # up/down tilt
+    glRotatef(player_tilt, 1, 0, 0)
+    glRotatef(player_angle, 0, 0, 1)
+    glRotatef(player_pitch, 1, 0, 0)
     glScalef(player_scale, player_scale, player_scale)
-    
-    # Torso
+
     glPushMatrix()
     glColor3f(0.5, 0.0, 0.0)
     glTranslatef(0, 0, 60)
@@ -272,7 +270,6 @@ def draw_player_on_keep():
     glutSolidCube(35)
     glPopMatrix()
 
-    # Legs
     glPushMatrix()
     glColor3f(0.2, 0.2, 0.9)
     glTranslatef(-10, 0, 0)
@@ -285,7 +282,6 @@ def draw_player_on_keep():
     gluCylinder(gluNewQuadric(), 4, 8, 50, 20, 20)
     glPopMatrix()
 
-    # Neck
     glPushMatrix()
     glColor3f(0.7, 0.7, 0.7)
     glTranslatef(0, 0, 90)
@@ -293,7 +289,6 @@ def draw_player_on_keep():
     gluCylinder(gluNewQuadric(), 10, 3, 20, 20, 20)
     glPopMatrix()
 
-    # Arms (forward/down)
     glPushMatrix()
     glColor3f(1.0, 0.8, 0.6)
     glTranslatef(-20, 15, 100)
@@ -308,28 +303,24 @@ def draw_player_on_keep():
     gluCylinder(gluNewQuadric(), 5, 3, 40, 20, 20)
     glPopMatrix()
 
-    # Head
     glPushMatrix()
     glColor3f(0.0, 0.0, 0.0)
     glTranslatef(0, 0, 118)
     glutSolidSphere(18, 20, 20)
     glPopMatrix()
 
-    # Simple bow between hands (basic shapes only)
-    # A vertical grip + two angled limbs (3 cubes) to suggest a bow
     glPushMatrix()
     glColor3f(0.4, 0.25, 0.1)
-    glTranslatef(0, 66, 100)       # center between hands
+    glTranslatef(0, 66, 100)
     glRotatef(180, 0, 0, 1)
     
-    # Upper limb
     glPushMatrix()
     glTranslatef(0, 22, 16)
     glRotatef(70, 1, 0, 0)
     glScalef(2, 22, 2)
     glutSolidCube(2)
     glPopMatrix()
-    # Lower limb
+
     glPushMatrix()
     glTranslatef(0, 22, -16)
     glRotatef(-70, 1, 0, 0)
@@ -340,90 +331,70 @@ def draw_player_on_keep():
 
     glPopMatrix()
 
-# ---- Compute bow world position (so arrows start from hands) ----
 def get_bow_world_pos_and_yaw():
-    """
-    Returns (x, y, z, yaw_deg) for the bow center between hands,
-    applying: scale -> tilt(X) -> yaw(Z) -> translate.
-    """
+
     bx, by, bz = bow
-    # apply uniform scale in local
+
     bx *= player_scale
     by *= player_scale
     bz *= player_scale
 
-    # tilt around +X by player_tilt
     tilt = math.radians(player_tilt)
     c = math.cos(tilt)
     s = math.sin(tilt)
-    # Rx(θ): y' = y*cosθ - z*sinθ ; z' = y*sinθ + z*cosθ
+
     y1 = by * c - bz * s
     z1 = by * s + bz * c
     x1 = bx
 
-    # yaw around Z by player_angle
     yaw = math.radians(player_angle)
     cy = math.cos(yaw)
     sy = math.sin(yaw)
-    # Rz(α): x'' = x*cosα - y*sinα ; y'' = x*sinα + y*cosα
     x2 = x1 * cy - y1 * sy
     y2 = x1 * sy + y1 * cy
 
-    # translate to world
     wx = player_base[0] + x2
     wy = player_base[1] + y2
     wz = player_base[2] + z1
 
     return wx, wy, wz, player_angle, player_pitch
 
-# ------------------ Arrows ------------------
 def draw_arrows():
-    global arrows
+    global arrows, missed_arrows, game_over
     updated = []
     for (x, y, z, angle_deg, pitch_deg, vz) in arrows:
         speed = 18.0
         rad = math.radians(angle_deg)
         pitch_rad = math.radians(pitch_deg)
 
-        # Move forward using yaw and pitch
         x += speed * math.cos(rad) * math.cos(pitch_rad)
         y += speed * math.sin(rad) * math.cos(pitch_rad)
         z += speed * math.sin(pitch_rad)
 
-        # Drop effect (gravity)
         vz -= 0.35
-        z += vz-0.5
+        z += vz - 0.5
 
-        # keep a while
         if abs(x) < 4000 and abs(y) < 4000 and z > 0:
             updated.append((x, y, z, angle_deg, pitch_deg, vz))
 
-            # Draw the arrow oriented with yaw and pitched by its vertical velocity
-            # Pitch approximation from vz (more negative -> more nose-down)
-            pitch_deg = max(-45, min(45, -vz * 2.0))
-
             glPushMatrix()
             glTranslatef(x, y, z)
-            glRotatef(angle_deg - 90, 0, 0, 1)   # yaw so +Y is forward
-            glRotatef(0, 0, 0, 1)        # pitch
+            glRotatef(angle_deg - 90, 0, 0, 1)
             glScalef(2.0, 2.0, 2.0)
 
-            # Shaft (thin cube stick)
             glColor3f(0.5, 0.3, 0.1)
             glPushMatrix()
-            glScalef(2.0, 30.0, 2.0)             # long along +Y
+            glScalef(2.0, 30.0, 2.0)
             glutSolidCube(1)
             glPopMatrix()
 
-            # Arrowhead (cone via cylinder → tip forward)
             glColor3f(0.8, 0.0, 0.0)
             glPushMatrix()
-            glTranslatef(0, 16, 0)               # tip at front
+            glTranslatef(0, 16, 0)
             glRotatef(-90, 1, 0, 0)
             gluCylinder(gluNewQuadric(), 2.5, 0.0, 7.0, 10, 1)
             glPopMatrix()
 
-            # Simple tail (fletching) as a tiny cube
             glColor3f(0.9, 0.9, 0.9)
             glPushMatrix()
             glTranslatef(0, -15, 0)
@@ -432,12 +403,14 @@ def draw_arrows():
             glPopMatrix()
 
             glPopMatrix()
+        else:
+            missed_arrows += 1
+            if missed_arrows >= 40:
+                game_over = True
 
     arrows = updated
 
-# ------------------ Enemies ------------------
-enemies = []   # list of (x, y, z)
-
+enemies = []
 def init_enemies(num=5):
     global enemies
     enemies = []
@@ -445,31 +418,27 @@ def init_enemies(num=5):
         spawn_enemy()
 
 def spawn_enemy():
-    """Spawn a new enemy randomly in front of the castle on the ground"""
-    x = random.randint(-700, 700)   # spread left/right
-    y = random.randint(600, 900)    # in front of castle gate
-    z = 0                           # ground level
+    x = random.randint(-700, 700) 
+    y = random.randint(600, 900) 
+    z = 0 
     enemies.append([x, y, z])
 
 def draw_enemy(x, y, z):
     glPushMatrix()
     glTranslatef(x, y, z)
 
-    # --- Body (bulky, green) ---
-    glColor3f(0.05, 0.4, 0.05)
+    glColor3f(0.5, 0, 0)
     glPushMatrix()
     glTranslatef(0, 0, 40)
-    glutSolidSphere(35, 25, 25)   # big torso
+    glutSolidSphere(35, 25, 25)
     glPopMatrix()
 
-    # --- Head (bigger, darker green) ---
     glColor3f(0.0, 0.3, 0.0)
     glPushMatrix()
     glTranslatef(0, 0, 90)
     glutSolidSphere(22, 20, 20)
     glPopMatrix()
 
-    # --- Eyes (red, glowing) ---
     glColor3f(1, 0, 0)
     glPushMatrix()
     glTranslatef(-7, 20, 95)
@@ -480,7 +449,6 @@ def draw_enemy(x, y, z):
     glutSolidSphere(4, 12, 12)
     glPopMatrix()
 
-    # --- Horns (white) ---
     glColor3f(1, 1, 1)
     glPushMatrix()
     glTranslatef(-10, -5, 105)
@@ -493,7 +461,6 @@ def draw_enemy(x, y, z):
     gluCylinder(gluNewQuadric(), 2, 0.5, 20, 10, 10)
     glPopMatrix()
 
-    # --- Mouth (black) ---
     glColor3f(0, 0, 0)
     glPushMatrix()
     glTranslatef(0, 15, 90)
@@ -501,7 +468,6 @@ def draw_enemy(x, y, z):
     glutSolidCube(1)
     glPopMatrix()
 
-    # --- Teeth (spikes) ---
     glColor3f(1, 1, 1)
     for dx in (-4, 0, 4):
         glPushMatrix()
@@ -510,7 +476,6 @@ def draw_enemy(x, y, z):
         gluCylinder(gluNewQuadric(), 1.2, 0.2, 6, 6, 6)
         glPopMatrix()
 
-    # --- Spikes on back ---
     glColor3f(0.2, 0.2, 0.2)
     for i in range(5):
         glPushMatrix()
@@ -522,21 +487,22 @@ def draw_enemy(x, y, z):
     glPopMatrix()
 
 def update_enemies():
-    global enemies
+    global enemies, castle_health, game_over
     updated = []
     for (x, y, z) in enemies:
-        # Move toward castle (negative Y direction)
-        y -= 0.3  
 
-        # If reached the castle gate, respawn
-        if y <= 10:
-            spawn_enemy()
+        y -= 0.3  
+        if y <= -20:
+            castle_health -= 1
+            if castle_health <= 0:
+                game_over = True
+            else:
+                spawn_enemy()
         else:
             updated.append([x, y, z])
 
-    # Ensure always 5 enemies
     while len(updated) < 5:
-        spawn_enemy()
+        updated.append(spawn_enemy())
 
     enemies = updated
 
@@ -544,28 +510,22 @@ def draw_enemies():
     for (x, y, z) in enemies:
         draw_enemy(x, y, z)
 
-# ------------------ Fire Line ------------------
 fire_particles = []
 
 def init_fire_line(length=400, spacing=20):
-    """Create fire particles along a line in front of the castle."""
     global fire_particles
     fire_particles = []
     for i in range(-length//2, length//2 + 1, spacing):
-        # x = along the line, y = front of castle, z = ground level
         fire_particles.append([i, -420, 0, random.uniform(10, 20)])  
-        # each particle = [x, y, base_z, height]
 
 def draw_fire_line():
     global fire_particles
     for p in fire_particles:
         x, y, base_z, h = p
 
-        # Flicker animation
         flicker = random.uniform(-3, 3)
         flame_height = h + flicker
 
-        # Flicker color
         r = 1.0
         g = random.uniform(0.3, 0.7)
         b = 0.0
@@ -573,7 +533,6 @@ def draw_fire_line():
         glPushMatrix()
         glTranslatef(x, y+400, base_z)
 
-        # Draw low flame as stacked spheres
         glColor3f(r, g, b)
         glutSolidSphere(6, 10, 10)
 
@@ -594,7 +553,6 @@ def check_arrow_enemy_collision():
     for i in range(len(arrows)):
         ax, ay, az, angle_deg, pitch_deg, vz = arrows[i]
 
-        # Compute previous position
         speed = 18.0
         rad = math.radians(angle_deg)
         pitch_rad = math.radians(pitch_deg)
@@ -605,35 +563,27 @@ def check_arrow_enemy_collision():
         hit = False
         for enemy in enemies:
             ex, ey, ez = enemy
-            # Treat enemy as sphere at center + radius
             cx, cy, cz = ex, ey, ez + 30
-            r = 40
-
-            # Vector from previous to current arrow pos
+            r = 60
             vx, vy, vz_arrow = ax - prev_x, ay - prev_y, az - prev_z
-            # Vector from previous arrow pos to enemy center
-            wx, wy, wz_arrow = cx - prev_x, cy - prev_y, cz - prev_z
+            steps = 5
+            for step in range(steps + 1):
+                t = step / steps
+                px = prev_x + t * vx
+                py = prev_y + t * vy
+                pz = prev_z + t * vz_arrow
 
-            # Project w onto v to find closest point along line
-            v_len2 = vx*vx + vy*vy + vz_arrow*vz_arrow
-            if v_len2 == 0:
-                closest_dist2 = (wx*wx + wy*wy + wz_arrow*wz_arrow)
-            else:
-                t = max(0, min(1, (wx*vx + wy*vy + wz_arrow*vz_arrow)/v_len2))
-                closest_x = prev_x + t*vx
-                closest_y = prev_y + t*vy
-                closest_z = prev_z + t*vz_arrow
-                dx = cx - closest_x
-                dy = cy - closest_y
-                dz = cz - closest_z
-                closest_dist2 = dx*dx + dy*dy + dz*dz
+                dx = cx - px
+                dy = cy - py
+                dz = cz - pz
+                if dx*dx + dy*dy + dz*dz < r*r:
+                    kill_count += 1
+                    enemies.remove(enemy)
+                    spawn_enemy()
+                    hit = True
+                    break
 
-            if closest_dist2 < r*r:
-                # Arrow hit enemy
-                kill_count += 1
-                enemies.remove(enemy)
-                spawn_enemy()
-                hit = True
+            if hit:
                 break
 
         if not hit:
@@ -641,17 +591,15 @@ def check_arrow_enemy_collision():
 
     arrows = updated_arrows
 
-# --- draw only the geometry, no transforms here ---
 def draw_player_model():
-    # Torso
+
     glPushMatrix()
-    glColor3f(0.5, 0.0, 0.0)
+    glColor3f(0.5, 0.2, 0.8)
     glTranslatef(0, 0, 60)
     glScalef(0.8, 0.4, 2.0)
     glutSolidCube(35)
     glPopMatrix()
 
-    # Legs
     glPushMatrix()
     glColor3f(0.2, 0.2, 0.9)
     glTranslatef(-10, 0, 0)
@@ -664,7 +612,6 @@ def draw_player_model():
     gluCylinder(gluNewQuadric(), 4, 8, 50, 20, 20)
     glPopMatrix()
 
-    # Neck
     glPushMatrix()
     glColor3f(0.7, 0.7, 0.7)
     glTranslatef(0, 0, 90)
@@ -672,7 +619,6 @@ def draw_player_model():
     gluCylinder(gluNewQuadric(), 10, 3, 20, 20, 20)
     glPopMatrix()
 
-    # Arms
     glPushMatrix()
     glColor3f(1.0, 0.8, 0.6)
     glTranslatef(-20, 15, 100)
@@ -687,14 +633,12 @@ def draw_player_model():
     gluCylinder(gluNewQuadric(), 5, 3, 40, 20, 20)
     glPopMatrix()
 
-    # Head
     glPushMatrix()
     glColor3f(0.0, 0.0, 0.0)
     glTranslatef(0, 0, 118)
     glutSolidSphere(18, 20, 20)
     glPopMatrix()
 
-    # Bow (simple)
     glPushMatrix()
     glColor3f(0.4, 0.25, 0.1)
     glTranslatef(0, 66, 100)
@@ -710,7 +654,7 @@ def draw_god_players():
     for gp in god_players:
         glPushMatrix()
         glTranslatef(*gp["base"])
-        glRotatef(player_tilt, 1, 0, 0)   # same tilt
+        glRotatef(player_tilt, 1, 0, 0)
         glRotatef(gp["angle"], 0, 0, 1)
         glRotatef(gp["pitch"], 1, 0, 0)
         glScalef(0.9, 0.9, 0.9)
@@ -721,25 +665,58 @@ def get_bow_world_pos(base, yaw_deg, pitch_deg, scale=1.0):
     bx, by, bz = bow
     bx *= scale; by *= scale; bz *= scale
 
-    # tilt
     tilt = math.radians(player_tilt)
     c, s = math.cos(tilt), math.sin(tilt)
     y1 = by*c - bz*s
     z1 = by*s + bz*c
     x1 = bx
 
-    # yaw
     yaw = math.radians(yaw_deg)
     cy, sy = math.cos(yaw), math.sin(yaw)
     x2 = x1*cy - y1*sy
     y2 = x1*sy + y1*cy
 
-    # translate
     wx = base[0] + x2
     wy = base[1] + y2
     wz = base[2] + z1
 
     return wx, wy, wz, yaw_deg, pitch_deg
+
+def get_bow_world_pos_and_forward():
+    bx, by, bz = bow
+    bx *= player_scale
+    by *= player_scale
+    bz *= player_scale
+
+    tilt = math.radians(player_tilt)
+    c, s = math.cos(tilt), math.sin(tilt)
+    y1 = by * c - bz * s
+    z1 = by * s + bz * c
+    x1 = bx
+
+    yaw = math.radians(player_angle)
+    cy, sy = math.cos(yaw), math.sin(yaw)
+    x2 = x1 * cy - y1 * sy
+    y2 = x1 * sy + y1 * cy
+
+    wx = player_base[0] + x2
+    wy = player_base[1] + y2
+    wz = player_base[2] + z1
+
+    fx, fy, fz = 0, 1, 0
+    fy_tilt = fy * c - fz * s
+    fz_tilt = fy * s + fz * c
+    fx_tilt = fx
+    fx_world = fx_tilt * cy - fy_tilt * sy
+    fy_world = fx_tilt * sy + fy_tilt * cy
+    fz_world = fz_tilt
+
+    length = math.sqrt(fx_world**2 + fy_world**2 + fz_world**2)
+    fx_world /= length
+    fy_world /= length
+    fz_world /= length
+
+    return wx, wy, wz, fx_world, fy_world, fz_world
 
 def god_mode_behavior():
     global god_mode_cooldown, god_shooter_index
@@ -747,9 +724,8 @@ def god_mode_behavior():
     if not god_mode or not enemies:
         return
 
-    # slow rotation
     for gp in god_players:
-        gp["angle"] = (gp["angle"] + 1) % 360   # sweep in 180° arc
+        gp["angle"] = (gp["angle"] + 1) % 360 
 
     if god_mode_cooldown > 0:
         god_mode_cooldown -= 1
@@ -776,18 +752,44 @@ def god_mode_behavior():
         arrows.append((bx, by, bz, yaw, pitch, 0.8))
         god_mode_cooldown = 30
         god_shooter_index = (god_shooter_index + 1) % len(god_players)
-        
-# ------------------ Controls ------------------
+
+def reset_game():
+    global arrows, enemies, kill_count, missed_arrows, castle_health, game_over
+    global god_mode, god_players, god_mode_cooldown, god_shooter_index
+    global player_angle, player_pitch, player_base
+    global first_person, camera_pos
+
+    arrows = []
+    enemies = []
+    init_enemies(5)
+
+    kill_count = 0
+    missed_arrows = 0
+    castle_health = 10
+    game_over = False
+
+    player_angle = 0
+    player_pitch = 0
+    player_base = (-55.0, -650.0, 350.0)
+
+    god_mode = False
+    god_players = []
+    god_mode_cooldown = 0
+    god_shooter_index = 0      
+
+    first_person = False
+    camera_pos = (0, 500, 500) 
+
 def keyboardListener(key, x, y):
     global player_angle, player_pitch, god_mode, god_players
-    if key == b'a':
+    if key == b'd':
         player_angle += 5
-    elif key == b'd':
+    elif key == b'a':
         player_angle -= 5
     elif key == b'w':
-        player_pitch = min(player_pitch + 5, 45)   # look up, clamp
+        player_pitch = min(player_pitch + 5, 45)
     elif key == b's':
-        player_pitch = max(player_pitch - 5, -45)  # look down, clamp
+        player_pitch = max(player_pitch - 5, -45)
     elif key == b'g':
         god_mode = not god_mode
         if god_mode:
@@ -799,42 +801,81 @@ def keyboardListener(key, x, y):
             ]
         else:
             god_players = []
+    elif key == b'r':
+        reset_game()
 
 def specialKeyListener(key, x, y):
     global camera_pos
     x0, y0, z0 = camera_pos
-    if key == GLUT_KEY_LEFT: x0 -= 10
-    if key == GLUT_KEY_RIGHT: x0 += 10
+    if key == GLUT_KEY_LEFT: x0 += 10
+    if key == GLUT_KEY_RIGHT: x0 -= 10
+    if key == GLUT_KEY_UP: y0 -= 10
+    if key == GLUT_KEY_DOWN: y0 += 10
     camera_pos = (x0, y0, z0)
 
 def mouseListener(button, state, x, y):
     if button == GLUT_LEFT_BUTTON and state == GLUT_DOWN:
-        # Spawn from bow/hands world position, with current yaw,
-        # and a small initial upward velocity so it doesn't clip the bow
         bx, by, bz, yaw_deg, pitch_deg = get_bow_world_pos_and_yaw()
         arrows.append((bx, by, bz, yaw_deg+90, pitch_deg, 0.8))
+    global first_person
+    if button == GLUT_RIGHT_BUTTON and state == GLUT_DOWN:
+        first_person = not first_person
+        glutPostRedisplay()
 
-# ------------------ Camera / Display ------------------
 def setupCamera():
     glMatrixMode(GL_PROJECTION)
     glLoadIdentity()
-    gluPerspective(fovY, 1.25, 0.1, 2000)
+    gluPerspective(fovY, 1000/800, 0.1, 2000)
     glMatrixMode(GL_MODELVIEW)
     glLoadIdentity()
-    x, y, z = camera_pos
-    gluLookAt(x, y, z, 0, 0, 0, 0, 0, 1)
+
+    if first_person:
+        bx, by, bz, fx, fy, fz = get_bow_world_pos_and_forward()
+        cam_back = 50
+        cam_up   = 200
+        eye_x = bx - cam_back * fx
+        eye_y = by - cam_back * fy
+        eye_z = bz + cam_up
+
+        center_x = bx + 1000 * fx
+        center_y = by + 1000 * fy
+        center_z = bz + 1000 * fz
+
+        gluLookAt(eye_x, eye_y, eye_z,
+                  center_x, center_y, center_z,
+                  0, 0, 1)
+    else:
+        x, y, z = camera_pos
+        gluLookAt(x, y, z, 0, 0, 0, 0, 0, 1)
 
 def idle():
+    global sky_time
+    sky_time += sky_speed
+    if sky_time > 1.0:
+        sky_time -= 1.0
     glutPostRedisplay()
 
 def showScreen():
+    r = 0.5 + 0.3 * math.sin(2 * math.pi * sky_time)
+    g = 0.8 + 0.1 * math.sin(2 * math.pi * sky_time)
+    b = 0.9 + 0.1 * math.sin(2 * math.pi * sky_time)
+    glClearColor(r, g, b, 1.0)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
     glLoadIdentity()
     glViewport(0, 0, 1000, 800)
     setupCamera()
     
+    if game_over:
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+        draw_text(400+30, 400+60, "GAME OVER", GLUT_BITMAP_HELVETICA_18)
+        draw_text(400+30, 360+60, f"Kills: {kill_count}")
+        draw_text(400+30, 330+60, f"Missed Arrows: {missed_arrows}")
+        draw_text(400+30, 300+60, f"Castle Health: {castle_health}")
+        draw_text(400+30, 270+60, f"PRESS 'R' TO RESTART")
+        glutSwapBuffers()
+        return
+    
     draw_grid_and_walls()
-    draw_clouds()
     draw_player_on_keep()
     draw_god_players()
     god_mode_behavior()
@@ -843,13 +884,13 @@ def showScreen():
     update_enemies()
     draw_fire_line()
     draw_enemies()
-
-    draw_text(10, 770, "Big Castle Prototype")
-    draw_text(10, 710, f"Kills: {kill_count}")
+    draw_clouds()
+    draw_text(15, 760, f"Kills: {kill_count}")
+    draw_text(15, 740, f"Castle Health: {castle_health}")
+    draw_text(15, 720, f"Missed: {missed_arrows}/40")
 
     glutSwapBuffers()
 
-# ------------------ Main ------------------
 def main():
     glutInit()
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)
@@ -865,7 +906,7 @@ def main():
     glClearColor(0.5, 0.81, 0.9, 1.0)
     init_clouds(15)
     init_enemies(5)
-    init_fire_line(2280, 10)   # fire trench 500 units wide
+    init_fire_line(2280, 10)
     glutMainLoop()
 
 if __name__ == "__main__":
