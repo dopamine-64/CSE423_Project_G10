@@ -831,6 +831,8 @@ def specialKeyListener(key, x, y):
     x0, y0, z0 = camera_pos
     if key == GLUT_KEY_LEFT: x0 -= 10
     if key == GLUT_KEY_RIGHT: x0 += 10
+    if key == GLUT_KEY_UP: z0 += 10
+    if key == GLUT_KEY_DOWN: z0 -= 10
     camera_pos = (x0, y0, z0)
 
 def mouseListener(button, state, x, y):
